@@ -2,7 +2,7 @@
 
 一款 iOS 相册整理工具：自动找出**相似照片**、**模糊照片**和**体积较大的视频**，让你用最少的操作释放手机存储空间。
 
-> **状态：规划中（Planning）** —— 本文档描述产品目标与技术方案，代码尚未开始实现。
+> **状态：工程骨架已搭建（M0）** —— 相册权限、首页、缩略图加载、大体积视频清理（M1 雏形）已有初版代码；相似照片与模糊照片仍是占位页面。骨架在无 Xcode 的环境中生成，尚未在 Xcode 中编译验证。
 
 ## 功能
 
@@ -55,32 +55,50 @@
 - Swift 5.9+
 - 真机测试（模拟器相册数据有限，且无法验证性能）
 
-## 项目结构（规划）
+## 快速开始
+
+工程使用 [XcodeGen](https://github.com/yonaskolb/XcodeGen) 由 `project.yml` 生成，`.xcodeproj` 不入库，避免合并冲突。
+
+```bash
+brew install xcodegen
+xcodegen generate        # 生成 PhotoManager.xcodeproj 和 Config/Info.plist
+open PhotoManager.xcodeproj
+```
+
+1. 在 target 的 *Signing & Capabilities* 中选择你的开发团队，并按需修改 `project.yml` 里的 `com.example.PhotoManager`。
+2. 连接真机运行（模拟器相册数据有限，无法验证性能）。
+3. 运行单元测试：`⌘U`，或
+   `xcodebuild test -scheme PhotoManager -destination 'platform=iOS Simulator,name=iPhone 15'`。
+
+> 修改 `project.yml` 或新增/删除源文件后，重新执行 `xcodegen generate`。
+
+## 项目结构
 
 ```
 photo-manager/
-├── PhotoManager.xcodeproj
+├── project.yml                  # XcodeGen 工程定义（含 Info.plist 权限文案）
 ├── PhotoManager/
-│   ├── App/                 # 入口、依赖注入、权限引导
+│   ├── App/                     # 入口 PhotoManagerApp、RootView（权限引导）
 │   ├── Features/
-│   │   ├── Similar/         # 相似照片分组与合并
-│   │   ├── Blurry/          # 模糊照片清理
-│   │   ├── LargeVideos/     # 大视频清理
-│   │   └── Dashboard/       # 首页概览与空间统计
+│   │   ├── Dashboard/           # 首页概览与导航
+│   │   ├── LargeVideos/         # 大视频清理（已有初版）
+│   │   ├── Blurry/              # 模糊照片清理（占位）
+│   │   └── Similar/             # 相似照片合并（占位）
 │   ├── Core/
-│   │   ├── Library/         # PhotoKit 封装、资源加载
-│   │   ├── Analysis/        # 感知哈希、特征向量、清晰度算法
-│   │   ├── Storage/         # 扫描结果缓存
-│   │   └── Deletion/        # 删除与撤销逻辑
-│   └── Resources/
+│   │   ├── Library/             # PhotoLibraryService、ThumbnailLoader
+│   │   ├── Deletion/            # PhotoDeletionService
+│   │   └── Formatters.swift     # 体积 / 时长格式化
+│   └── Resources/Assets.xcassets
 ├── PhotoManagerTests/
 └── README.md
 ```
 
+后续里程碑会新增 `Core/Analysis/`（感知哈希、特征向量、清晰度算法）与 `Core/Storage/`（扫描结果缓存）。
+
 ## 开发路线
 
-- [ ] **M0**：工程搭建、相册权限、资源列表与缩略图加载
-- [ ] **M1**：大视频列表、排序、筛选与批量删除（最简单，先落地闭环）
+- [x] **M0**：工程搭建、相册权限、资源列表与缩略图加载
+- [ ] **M1**：大视频列表、排序、筛选与批量删除（最简单，先落地闭环）——列表、排序、批量删除已有初版，筛选待做
 - [ ] **M2**：模糊照片检测与清理
 - [ ] **M3**：相似照片分组、最佳照片推荐与合并
 - [ ] **M4**：增量扫描、缓存、后台处理与性能优化

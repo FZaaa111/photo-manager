@@ -1,0 +1,62 @@
+name: PhotoManager
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  PhotoManager:
+    type: application
+    platform: iOS
+    sources:
+      - PhotoManager
+    info:
+      path: Config/Info.plist
+      properties:
+        CFBundleDisplayName: Photo Manager
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSPhotoLibraryUsageDescription: Photo Manager 需要访问你的相册，以找出相似照片、模糊照片和大体积视频。所有分析均在本机完成，不会上传任何内容。
+        NSPhotoLibraryAddUsageDescription: Photo Manager 需要相册权限，以便在你确认后删除所选的照片和视频。
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.PhotoManager
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: NO
+
+  PhotoManagerTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - PhotoManagerTests
+    dependencies:
+      - target: PhotoManager
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.PhotoManagerTests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  PhotoManager:
+    build:
+      targets:
+        PhotoManager: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - PhotoManagerTests

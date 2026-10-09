@@ -10,6 +10,7 @@ struct AnalysisRecord: Identifiable, Hashable, Sendable {
     var fileSize: Int64 = 0
     var burstIdentifier: String?
     var isFavorite: Bool = false
+    var isScreenshot: Bool = false
 
     /// 拉普拉斯方差，越大越清晰；nil 表示尚未分析。
     var sharpness: Double?

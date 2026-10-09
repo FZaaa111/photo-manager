@@ -47,6 +47,32 @@ enum FeaturePrint {
     }
 }
 
+/// 缓存反归档后的特征向量，避免成组比较时对同一张照片重复反归档。
+/// 非线程安全：每次分组计算创建一个实例，只在单个线程使用。
+final class FeatureDistanceCache {
+    private var cache: [Data: VNFeaturePrintObservation] = [:]
+
+    func distance(_ a: Data, _ b: Data) -> Float? {
+        guard let oa = observation(a), let ob = observation(b) else { return nil }
+        var value: Float = 0
+        do {
+            try oa.computeDistance(&value, to: ob)
+            return value
+        } catch {
+            return nil
+        }
+    }
+
+    private func observation(_ data: Data) -> VNFeaturePrintObservation? {
+        if let cached = cache[data] { return cached }
+        guard let obs = try? NSKeyedUnarchiver.unarchivedObject(ofClass: VNFeaturePrintObservation.self, from: data) else {
+            return nil
+        }
+        cache[data] = obs
+        return obs
+    }
+}
+
 private extension CGRect {
     var area: CGFloat { width * height }
 }

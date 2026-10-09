@@ -20,7 +20,7 @@ enum VideoScanner {
                 VideoItem(
                     id: asset.localIdentifier,
                     duration: asset.duration,
-                    fileSize: fileSize(of: asset),
+                    fileSize: AssetResourceInfo.fileSize(of: asset, types: [.video, .fullSizeVideo]),
                     creationDate: asset.creationDate
                 )
             )
@@ -30,16 +30,5 @@ enum VideoScanner {
 
     static func sortedBySizeDescending(_ items: [VideoItem]) -> [VideoItem] {
         items.sorted { $0.fileSize > $1.fileSize }
-    }
-
-    /// PhotoKit 没有公开的文件大小 API，这里通过 KVC 读取 PHAssetResource 的 "fileSize"。
-    /// 这是业界常用但未文档化的做法；读取失败时返回 0。
-    private static func fileSize(of asset: PHAsset) -> Int64 {
-        let resources = PHAssetResource.assetResources(for: asset)
-        let video = resources.first { $0.type == .video || $0.type == .fullSizeVideo }
-        guard let video,
-              let number = video.value(forKey: "fileSize") as? NSNumber
-        else { return 0 }
-        return number.int64Value
     }
 }

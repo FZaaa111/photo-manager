@@ -50,8 +50,10 @@ final class LargeVideosViewModel {
         do {
             try await PhotoDeletionService.delete(localIdentifiers: ids)
         } catch {
-            // 用户在系统确认框中点"取消"也会走到这里，重新加载以反映真实状态即可。
-            errorMessage = error.localizedDescription
+            // 用户在系统确认框中点"取消"不算错误，其余情况才提示。
+            if !PhotoDeletionService.isUserCancelled(error) {
+                errorMessage = error.localizedDescription
+            }
         }
         await load()
     }

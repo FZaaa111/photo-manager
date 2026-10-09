@@ -4,10 +4,16 @@ import Observation
 @MainActor
 @Observable
 final class LargeVideosViewModel {
-    private(set) var videos: [VideoItem] = []
+    private(set) var allVideos: [VideoItem] = []
     private(set) var isLoading = false
     var selection = Set<String>()
     var errorMessage: String?
+    var filter = VideoFilter()
+
+    /// 应用筛选后的视频列表。
+    var videos: [VideoItem] {
+        filter.apply(to: allVideos)
+    }
 
     var totalSize: Int64 {
         videos.reduce(0) { $0 + $1.fileSize }
@@ -20,9 +26,22 @@ final class LargeVideosViewModel {
     func load() async {
         isLoading = true
         defer { isLoading = false }
-        videos = await Task.detached(priority: .userInitiated) {
+        allVideos = await Task.detached(priority: .userInitiated) {
             VideoScanner.scan()
         }.value
+        selection.formIntersection(allVideos.map(\.id))
+    }
+
+    func selectAllVisible() {
+        selection = Set(videos.map(\.id))
+    }
+
+    func clearSelection() {
+        selection.removeAll()
+    }
+
+    /// 筛选条件变化后，去掉已不可见的选中项。
+    func pruneSelectionToVisible() {
         selection.formIntersection(videos.map(\.id))
     }
 

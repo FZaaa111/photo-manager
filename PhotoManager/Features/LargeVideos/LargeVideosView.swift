@@ -3,6 +3,7 @@ import SwiftUI
 struct LargeVideosView: View {
     @State private var viewModel = LargeVideosViewModel()
     @State private var confirmDelete = false
+    @State private var showFilter = false
 
     var body: some View {
         List(viewModel.videos, selection: $viewModel.selection) { video in
@@ -24,16 +25,40 @@ struct LargeVideosView: View {
         }
         .environment(\.editMode, .constant(.active))
         .overlay {
-            if viewModel.isLoading && viewModel.videos.isEmpty {
+            if viewModel.isLoading && viewModel.allVideos.isEmpty {
                 ProgressView("正在扫描视频…")
             } else if !viewModel.isLoading && viewModel.videos.isEmpty {
-                ContentUnavailableView("没有视频", systemImage: "video.slash")
+                ContentUnavailableView(
+                    viewModel.allVideos.isEmpty ? "没有视频" : "没有符合条件的视频",
+                    systemImage: "video.slash",
+                    description: viewModel.allVideos.isEmpty ? nil : Text("试试放宽筛选条件")
+                )
             }
         }
         .navigationTitle("大体积视频")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button("全选") { viewModel.selectAllVisible() }
+                    .disabled(viewModel.videos.isEmpty)
+                Button {
+                    showFilter = true
+                } label: {
+                    Image(systemName: viewModel.filter.isDefault
+                        ? "line.3.horizontal.decrease.circle"
+                        : "line.3.horizontal.decrease.circle.fill")
+                }
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             bottomBar
+        }
+        .sheet(isPresented: $showFilter) {
+            VideoFilterSheet(filter: $viewModel.filter)
+                .presentationDetents([.medium])
+        }
+        .onChange(of: viewModel.filter) {
+            viewModel.pruneSelectionToVisible()
         }
         .task { await viewModel.load() }
         .confirmationDialog(
@@ -63,5 +88,59 @@ struct LargeVideosView: View {
         }
         .padding()
         .background(.bar)
+    }
+}
+
+private struct VideoFilterSheet: View {
+    @Binding var filter: VideoFilter
+    @Environment(\.dismiss) private var dismiss
+    @State private var useDateLimit = false
+    @State private var dateLimit = Calendar.current.date(byAdding: .year, value: -1, to: .now) ?? .now
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Picker("最小体积", selection: $filter.minSize) {
+                    ForEach(VideoSizePreset.allCases) { Text($0.title).tag($0) }
+                }
+                Picker("最短时长", selection: $filter.minDuration) {
+                    ForEach(VideoDurationPreset.allCases) { Text($0.title).tag($0) }
+                }
+                Picker("排序", selection: $filter.sortKey) {
+                    ForEach(VideoSortKey.allCases) { Text($0.title).tag($0) }
+                }
+                Section {
+                    Toggle("仅显示早于某日期的视频", isOn: $useDateLimit)
+                    if useDateLimit {
+                        DatePicker("早于", selection: $dateLimit, displayedComponents: .date)
+                    }
+                }
+                Section {
+                    Button("恢复默认", role: .destructive) {
+                        filter = VideoFilter()
+                        useDateLimit = false
+                    }
+                }
+            }
+            .navigationTitle("筛选")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+            .onAppear {
+                if let date = filter.shotBefore {
+                    dateLimit = date
+                    useDateLimit = true
+                }
+            }
+            .onChange(of: useDateLimit) { updateDateLimit() }
+            .onChange(of: dateLimit) { updateDateLimit() }
+        }
+    }
+
+    private func updateDateLimit() {
+        filter.shotBefore = useDateLimit ? dateLimit : nil
     }
 }

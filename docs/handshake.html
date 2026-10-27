@@ -1,0 +1,500 @@
+<title>TLS 与 REALITY 握手</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@700;900&display=swap">
+<style>
+/* 布局：左侧协议时序图（泳道 + 报文箭头），右侧当前报文的字段详情；颜色编码这段数据在链路上是否加密 */
+:root {
+  --bg: #eef2f3;
+  --surface: #ffffff;
+  --sunken: #e3e9eb;
+  --ink: #12202a;
+  --muted: #566a74;
+  --line: #cdd7db;
+  --accent: #0a6b73;
+  --plain: #b4600f;
+  --hs: #0d7d68;
+  --app: #4a4ec0;
+  --proxy: #85778f;
+  --bad: #b3261e;
+  --good: #1f7a3a;
+  --font-display: "Noto Serif SC", "Songti SC", serif;
+  --font-body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1316; --surface: #141c20; --sunken: #1b252a; --ink: #e2eaec; --muted: #90a2a9; --line: #2a373d;
+    --accent: #52c2c8; --plain: #e8a160; --hs: #44c8aa; --app: #a1a3f7; --proxy: #b0a3bb; --bad: #f0877e; --good: #6fcf8a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1316; --surface: #141c20; --sunken: #1b252a; --ink: #e2eaec; --muted: #90a2a9; --line: #2a373d;
+  --accent: #52c2c8; --plain: #e8a160; --hs: #44c8aa; --app: #a1a3f7; --proxy: #b0a3bb; --bad: #f0877e; --good: #6fcf8a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.7; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 32px 56px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 28px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.3; }
+h1 { font-size: clamp(28px, 4.2vw, 44px); font-weight: 900; letter-spacing: .01em; }
+h2 { font-size: 24px; }
+h3 { font-size: 19px; }
+p { margin: 0; }
+code, .mono { font-family: var(--font-mono); font-size: .88em; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+header.intro { display: grid; gap: 12px; max-width: 780px; }
+header.intro p { color: var(--muted); }
+.bar { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; }
+.tabs, .seg { display: inline-flex; background: var(--sunken); border-radius: 10px; padding: 4px; gap: 4px; }
+.tabs button, .seg button { font: inherit; font-weight: 500; border: 0; background: transparent; color: var(--muted); padding: 7px 16px; border-radius: 7px; cursor: pointer; }
+.tabs button[aria-selected="true"], .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .12); }
+.tabs button { font-family: var(--font-mono); font-weight: 600; letter-spacing: .02em; }
+button:focus-visible, .row:focus-visible, input:focus-visible + .switch-ui { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bar-right { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; }
+.switch { display: inline-flex; gap: 8px; align-items: center; cursor: pointer; color: var(--muted); user-select: none; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch-ui { width: 36px; height: 20px; border-radius: 99px; background: var(--line); position: relative; transition: background .2s; flex: none; }
+.switch-ui::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--surface); transition: transform .2s; }
+.switch input:checked + .switch-ui { background: var(--accent); }
+.switch input:checked + .switch-ui::after { transform: translateX(16px); }
+.stage { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 960px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+.diagram-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; min-width: 0; }
+.diagram-scroll { overflow-x: auto; padding: 8px 4px 4px; }
+svg.seq { display: block; width: 100%; min-width: 540px; height: auto; font-family: var(--font-mono); }
+.controls { display: flex; gap: 8px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.controls button { font: inherit; font-size: 14px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 8px; padding: 6px 14px; cursor: pointer; }
+.controls button:hover { border-color: var(--accent); }
+.controls button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); font-weight: 500; }
+.controls .counter { margin-left: auto; font-family: var(--font-mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lane-title { fill: var(--ink); font-family: var(--font-body); font-weight: 700; font-size: 14px; }
+.lane-sub { fill: var(--muted); font-size: 11px; }
+.lifeline { stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 2 4; }
+.lane-head { fill: var(--sunken); stroke: var(--line); }
+.row { cursor: pointer; transition: opacity .25s; outline: none; }
+.row.future { opacity: .28; }
+.row .hit { fill: transparent; }
+.row.current .hit { fill: var(--sunken); }
+.row:hover .hit { fill: var(--sunken); }
+.row .num { fill: var(--muted); font-size: 11px; }
+.row.current .num { fill: var(--accent); font-weight: 600; }
+.row .lbl { font-size: 12.5px; fill: var(--ink); }
+.row.current .lbl { font-weight: 600; }
+.arrow { stroke-width: 2; fill: none; }
+.row.current .arrow { stroke-width: 3; }
+.arrow.dashed { stroke-dasharray: 6 4; }
+.local-box { fill: var(--surface); stroke: var(--muted); stroke-dasharray: 3 3; }
+.row.current .local-box { stroke: var(--accent); stroke-dasharray: none; stroke-width: 1.5; }
+.detail { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 16px; min-width: 0; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); }
+@media (max-width: 960px) { .detail { position: static; } }
+.detail-head { display: grid; gap: 6px; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 99px; font-family: var(--font-mono); font-size: 12px; border: 1px solid currentColor; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill.plain { color: var(--plain); } .pill.hs { color: var(--hs); } .pill.app { color: var(--app); } .pill.proxy { color: var(--proxy); } .pill.local { color: var(--muted); }
+.desc { color: var(--ink); }
+.desc b { font-weight: 700; }
+.fields { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.fields-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 8px 12px; background: var(--sunken); display: flex; justify-content: space-between; gap: 8px; }
+.field { display: grid; grid-template-columns: minmax(110px, 38%) minmax(0, 1fr); gap: 12px; padding: 8px 12px; border-top: 1px solid var(--line); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; }
+.field:first-of-type { border-top: 0; }
+.field .k { color: var(--muted); overflow-wrap: anywhere; }
+.field .v { overflow-wrap: anywhere; min-width: 0; }
+.field .v.masked { color: var(--hs); letter-spacing: .05em; }
+.field .v.masked.app { color: var(--app); }
+.field .v .ok { color: var(--good); font-weight: 600; }
+.field .v .bad { color: var(--bad); font-weight: 600; }
+@media (max-width: 480px) { .field { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+.observer { border-left: 3px solid var(--plain); padding: 8px 12px; background: var(--sunken); border-radius: 0 8px 8px 0; font-size: 14px; }
+.observer .t { font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--plain); display: block; margin-bottom: 2px; }
+.keys { display: grid; gap: 8px; }
+.keys .t { font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 12.5px; padding: 3px 10px; border-radius: 6px; background: var(--sunken); color: var(--ink); border: 1px solid var(--line); }
+.chip.new { border-color: var(--accent); color: var(--accent); font-weight: 500; }
+.chip.none { color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.legend i { display: inline-block; width: 22px; height: 0; border-top: 3px solid; }
+.legend i.dash { border-top-style: dashed; }
+section.compare { display: grid; gap: 16px; }
+.table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 14px; }
+th, td { text-align: left; padding: 12px 16px; border-top: 1px solid var(--line); vertical-align: top; }
+thead th { border-top: 0; font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; color: var(--muted); background: var(--sunken); }
+tbody th { font-weight: 700; width: 18%; white-space: nowrap; }
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.note { padding: 16px 18px; border-radius: 12px; border: 1px solid var(--line); display: grid; gap: 6px; align-content: start; min-width: 0; }
+.note p { color: var(--muted); font-size: 14px; }
+footer { color: var(--muted); font-size: 13px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="intro">
+    <span class="eyebrow">Handshake walkthrough · RFC 8446 / XTLS REALITY</span>
+    <h1>TLS 1.3 与 REALITY 握手</h1>
+    <p>逐条报文拆开两种握手：标准 TLS 1.3 如何在一个往返内协商密钥并验证服务器身份；REALITY 作为一种 TLS 伪装方案，如何复用真实网站的证书外观，并把自定义认证信息放进握手字段里。点击时序图中任意一行，或用键盘 ← → 逐步查看。</p>
+  </header>
+
+  <div class="bar">
+    <div class="tabs" role="tablist" aria-label="选择协议">
+      <button role="tab" id="tab-tls" data-flow="tls" aria-selected="true">TLS 1.3</button>
+      <button role="tab" id="tab-reality" data-flow="reality" aria-selected="false">REALITY</button>
+    </div>
+    <div class="bar-right">
+      <div class="seg" id="scenario" hidden aria-label="场景">
+        <button data-sc="legit" aria-pressed="true">合法客户端</button>
+        <button data-sc="probe" aria-pressed="false">陌生探测者</button>
+      </div>
+      <label class="switch" for="observer">
+        <input type="checkbox" id="observer">
+        <span class="switch-ui"></span>
+        <span>旁观者视角</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="diagram-card">
+      <div class="diagram-scroll"><svg class="seq" id="seq" role="img" aria-label="握手时序图"></svg></div>
+      <div class="controls">
+        <button id="prev" aria-label="上一步">← 上一步</button>
+        <button id="play" class="primary">▶ 自动播放</button>
+        <button id="next" aria-label="下一步">下一步 →</button>
+        <span class="counter" id="counter"></span>
+      </div>
+    </div>
+
+    <aside class="detail" id="detail" aria-live="polite">
+      <div class="detail-head">
+        <div class="meta"><span id="d-step"></span><span class="pill" id="d-kind"></span><span id="d-route"></span></div>
+        <h2 id="d-title"></h2>
+      </div>
+      <p class="desc" id="d-desc"></p>
+      <div class="fields" id="d-fields-wrap">
+        <div class="fields-title"><span id="d-fields-title">字段</span><span id="d-fields-mode"></span></div>
+        <div id="d-fields"></div>
+      </div>
+      <div class="observer"><span class="t">链路上能看到什么</span><span id="d-observer"></span></div>
+      <div class="keys"><span class="t">此刻已掌握的密钥材料</span><div class="chips" id="d-keys"></div></div>
+    </aside>
+  </div>
+
+  <div class="legend" aria-label="图例">
+    <span><i style="border-color: var(--plain)"></i>明文传输</span>
+    <span><i style="border-color: var(--hs)"></i>握手流量密钥加密</span>
+    <span><i style="border-color: var(--app)"></i>应用流量密钥加密</span>
+    <span><i class="dash" style="border-color: var(--proxy)"></i>服务端透明转发</span>
+    <span><i class="dash" style="border-color: var(--muted)"></i>本地计算，不产生流量</span>
+  </div>
+
+  <section class="compare">
+    <h2>两种握手的差别</h2>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th></th><th>标准 TLS 1.3</th><th>REALITY</th></tr></thead>
+        <tbody>
+          <tr><th>服务端身份</th><td>CA 签发的证书链，配合 CertificateVerify 签名</td><td>握手时即时生成的临时证书，签名位由预共享密钥派生，不经过任何 CA</td></tr>
+          <tr><th>客户端身份</th><td>通常不认证（可选客户端证书）</td><td>放在握手字段里的一段密文，服务端据此判断客户端是否已知</td></tr>
+          <tr><th>预共享信息</th><td>系统内置的根证书</td><td>服务端公钥、短标识、借用的站点名，双方事先配置好</td></tr>
+          <tr><th>SNI 中的域名</th><td>服务器自己的域名</td><td>借用的目标站点域名，例如 www.example-cdn.com</td></tr>
+          <tr><th>需要自己的域名</th><td>需要</td><td>不需要</td></tr>
+          <tr><th>协议前提</th><td>—</td><td>必须 TLS 1.3 + X25519；目标站点也需支持，否则无法对齐外观</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="notes">
+      <div class="note"><h3>为什么前提是 TLS 1.3</h3><p>TLS 1.2 的 Certificate 消息是明文，旁观者能直接读到证书内容。TLS 1.3 从 ServerHello 之后即开始加密，证书对旁观者不可见，这是 REALITY 能出示一张自备临时证书的基础。</p></div>
+      <div class="note"><h3>为什么握手字段能携带数据</h3><p>TLS 1.3 中 legacy_session_id 仅为兼容中间设备而保留，客户端通常填 32 字节随机数。一段 AEAD 密文在统计上同样接近均匀随机，放在这里不改变报文的外观分布。</p></div>
+      <div class="note"><h3>REALITY 对齐不了什么</h3><p>目的 IP 与域名的对应关系。握手里写着某个大站的域名，连接却指向另一台主机，这种不一致是其固有特征。</p></div>
+    </div>
+  </section>
+
+  <footer>REALITY 部分依据 XTLS/REALITY 的公开设计整理，字段与校验细节可能随版本调整；示例域名与数值均为占位。TLS 1.3 部分依据 RFC 8446。本页用于协议教学。</footer>
+</div>
+<script>
+(function () {
+  "use strict";
+  const okm = '<span class="ok">✓</span>';
+  const badm = '<span class="bad">✗</span>';
+
+  // kind: plain | hs | app | proxy | local ; dir: right | left | self
+  // fields: [key, value, enc]  enc = hs|app 时旁观者视角被遮
+  const TLS = {
+    lanes: [ {id:"C",title:"客户端",sub:"浏览器"}, {id:"S",title:"服务器",sub:"example.com"} ],
+    steps: [
+      { from:"C", to:"S", kind:"plain", label:"ClientHello", title:"ClientHello",
+        desc:"客户端发起握手。TLS 1.3 把密钥交换提前到第一条消息，客户端<b>预先生成一对临时密钥</b>，并把公钥放进 key_share 扩展随 ClientHello 一起发出。",
+        fields:[["random","32 字节随机数","plain"],["cipher_suites","TLS_AES_128_GCM_SHA256 …","plain"],["key_share","X25519 客户端公钥 (32B)","plain"],["server_name","example.com","plain"],["supported_versions","TLS 1.3","plain"]],
+        observer:"全部明文。旁观者能看到目标域名（SNI）、支持的算法，以及客户端的临时公钥。",
+        keys:[] },
+      { from:"S", to:"C", kind:"plain", label:"ServerHello", title:"ServerHello",
+        desc:"服务器选定算法，回送<b>自己的临时公钥</b>。到这一步，双方各有对方的公钥，便可用 X25519 算出同一个共享密钥。ServerHello 本身仍是明文——它要携带算出密钥所需的材料。",
+        fields:[["random","32 字节随机数","plain"],["cipher_suite","TLS_AES_128_GCM_SHA256","plain"],["key_share","X25519 服务器公钥 (32B)","plain"]],
+        observer:"仍是明文。旁观者看到服务器公钥，但算不出共享密钥——私钥从不上链路。",
+        keys:["handshake 密钥（双方本地导出）"] },
+      { from:"S", to:"S", kind:"local", label:"派生 handshake 密钥", title:"本地：ECDHE + HKDF",
+        desc:"双方各自用「自己的私钥 + 对方的公钥」做 X25519，得到相同的共享密钥，再经 HKDF 派生出<b>握手流量密钥</b>。此后的握手消息全部加密。此步只在两端本地计算，链路上没有报文。",
+        fields:[["shared_secret","ECDHE(priv, peer_pub)","local"],["handshake_secret","HKDF-Extract(...)","local"],["c/s hs traffic key","HKDF-Expand(...)","local"]],
+        observer:"链路上没有任何报文。旁观者无从参与这次计算。",
+        keys:["handshake 密钥 ✓"] },
+      { from:"S", to:"C", kind:"hs", label:"{EncryptedExtensions}", title:"EncryptedExtensions",
+        desc:"第一条<b>加密</b>的握手消息，携带不影响密钥协商的其余参数（如 ALPN）。从这里开始，花括号表示内容已用握手流量密钥加密。",
+        fields:[["alpn","h2","hs"],["other_ext","…","hs"]],
+        observer:"密文。旁观者只看到一段加密记录，读不出里面的扩展。",
+        keys:["handshake 密钥 ✓"] },
+      { from:"S", to:"C", kind:"hs", label:"{Certificate}", title:"Certificate（已加密）",
+        desc:"服务器出示<b>证书链</b>证明自己是 example.com。关键点：在 TLS 1.3 里这条消息是加密的，<b>旁观者看不到证书内容</b>。",
+        fields:[["certificate","CN=example.com, 由 CA 签发","hs"],["chain","中间 CA → 根 CA","hs"]],
+        observer:"密文。旁观者无法看到证书主体，也就无法凭证书判断你在访问谁。",
+        keys:["handshake 密钥 ✓"] },
+      { from:"S", to:"C", kind:"hs", label:"{CertificateVerify}", title:"CertificateVerify（已加密）",
+        desc:"服务器用证书对应的<b>私钥，对整段握手记录签名</b>。这证明它确实持有证书私钥，而不是转发了一张别人的证书。客户端用证书里的公钥验签。",
+        fields:[["algorithm","rsa_pss / ecdsa","hs"],["signature","Sign(privkey, transcript)","hs"],["客户端校验","验签 "+okm,"hs"]],
+        observer:"密文。",
+        keys:["handshake 密钥 ✓"] },
+      { from:"S", to:"C", kind:"hs", label:"{Finished}", title:"服务器 Finished",
+        desc:"服务器发送握手记录的 MAC，证明握手全程未被篡改。客户端校验通过后，即确认对端身份与密钥。",
+        fields:[["verify_data","HMAC(transcript)","hs"],["客户端校验","一致 "+okm,"hs"]],
+        observer:"密文。",
+        keys:["handshake 密钥 ✓","application 密钥（即将导出）"] },
+      { from:"C", to:"S", kind:"hs", label:"{Finished}", title:"客户端 Finished",
+        desc:"客户端回送自己的 Finished。至此 <b>1-RTT 握手完成</b>：从 ClientHello 发出算起，仅一个往返。双方导出<b>应用流量密钥</b>。",
+        fields:[["verify_data","HMAC(transcript)","hs"],["application_secret","HKDF-Expand(...)","local"]],
+        observer:"密文。",
+        keys:["handshake 密钥 ✓","application 密钥 ✓"] },
+      { from:"C", to:"S", kind:"app", label:"Application Data ⇄", title:"应用数据",
+        desc:"握手结束，HTTP 请求与响应改用<b>应用流量密钥</b>加密收发。旁观者此后只能看到长度和时序。",
+        fields:[["request","GET / HTTP/2","app"],["response","200 OK …","app"]],
+        observer:"密文。只剩目的 IP、包长和时序等元数据可见。",
+        keys:["application 密钥 ✓"] }
+    ]
+  };
+
+  const REALITY = {
+    lanes: [ {id:"C",title:"客户端",sub:"已配置公钥/标识"}, {id:"S",title:"REALITY 服务端",sub:"VPS"}, {id:"T",title:"借用站点",sub:"www.example-cdn.com"} ],
+    legit: [
+      { from:"C", to:"S", kind:"plain", label:"ClientHello (伪装)", title:"ClientHello — 外观与普通浏览器一致",
+        desc:"客户端像访问借用站点一样发出 ClientHello：SNI 写<b>借用的域名</b>，指纹模仿主流浏览器。不同之处藏在两个字段里，外观上仍是均匀随机数，旁观者无法区分。",
+        fields:[["server_name","www.example-cdn.com（借用）","plain"],["key_share","X25519 客户端公钥（同时用于与服务端协商）","plain"],["legacy_session_id","AEAD 密文：时间戳 + 短标识","plain"],["fingerprint","模仿主流浏览器","plain"]],
+        observer:"全部明文，但看起来就是一次普通的、访问大站点的 ClientHello。session_id 像随机数，看不出内藏密文。",
+        keys:[] },
+      { from:"S", to:"S", kind:"local", label:"服务端识别客户端", title:"本地：服务端解析认证字段",
+        desc:"服务端用自己的私钥与客户端 key_share 做 X25519，得到共享密钥，<b>尝试解开 session_id 里的密文</b>。解开且短标识在白名单里，则判定为<b>已知客户端</b>，走 REALITY 路径；否则走转发路径。",
+        fields:[["auth_key","ECDHE(server_priv, client_pub)","local"],["解密 session_id","成功 "+okm,"local"],["时间戳","在允许窗口内 "+okm,"local"],["短标识","命中白名单 "+okm,"local"],["判定","已知客户端 → REALITY 路径","local"]],
+        observer:"本地计算，无报文。",
+        keys:["auth_key ✓"] },
+      { from:"S", to:"C", kind:"plain", label:"ServerHello", title:"ServerHello",
+        desc:"服务端回送临时公钥，与标准 TLS 1.3 相同。之后双方导出握手密钥，握手进入加密阶段。",
+        fields:[["key_share","X25519 服务端公钥","plain"],["cipher_suite","TLS_AES_128_GCM_SHA256","plain"]],
+        observer:"明文，与普通 TLS 1.3 的 ServerHello 无异。",
+        keys:["auth_key ✓","handshake 密钥"] },
+      { from:"S", to:"C", kind:"hs", label:"{Certificate} 临时证书", title:"Certificate — 自备的临时证书",
+        desc:"REALITY 路径下，服务端出示一张<b>握手时即时生成的临时证书</b>。因为 TLS 1.3 里这条消息已加密，旁观者看不到证书内容，也就发现不了它不是借用站点的真证书。",
+        fields:[["certificate","即时生成，CN 填借用域名","hs"],["chain","无 CA 链","hs"]],
+        observer:"密文。旁观者看不到这是一张自备证书。",
+        keys:["handshake 密钥 ✓"] },
+      { from:"S", to:"C", kind:"hs", label:"{CertificateVerify} 自定义签名", title:"CertificateVerify — 用预共享密钥派生的签名",
+        desc:"签名位不是 CA 体系的签名，而是<b>由预共享密钥对证书公钥派生的认证值</b>。客户端用配置里的同一密钥核对；只有「认识」服务端的客户端才能验证通过。这完成了<b>双向认证</b>。",
+        fields:[["signature","派生自预共享密钥的认证值","hs"],["客户端校验","与本地公钥匹配 "+okm,"hs"]],
+        observer:"密文。",
+        keys:["handshake 密钥 ✓"] },
+      { from:"C", to:"S", kind:"app", label:"Application Data ⇄", title:"应用数据",
+        desc:"双向认证完成，开始用应用流量密钥传数据。整条连接在旁观者看来，与一次访问借用站点的正常 TLS 1.3 会话别无二致。",
+        fields:[["request","经代理的实际流量","app"],["response","…","app"]],
+        observer:"密文。外观与访问借用站点一致，仅目的 IP 与域名不对应这一点是固有特征。",
+        keys:["application 密钥 ✓"] }
+    ],
+    probe: [
+      { from:"C", to:"S", kind:"plain", label:"ClientHello (无认证)", title:"陌生探测者的 ClientHello",
+        desc:"一个不掌握预共享信息的探测者，也向这台主机发 ClientHello，SNI 同样写借用域名——它想看看这台主机是否在伪装。但它的 session_id 里<b>没有合法密文</b>。",
+        fields:[["server_name","www.example-cdn.com","plain"],["legacy_session_id","普通随机数，非合法密文","plain"]],
+        observer:"明文。",
+        keys:[] },
+      { from:"S", to:"S", kind:"local", label:"服务端识别失败", title:"本地：认证不通过",
+        desc:"服务端照例尝试解开 session_id，<b>解不出合法内容</b>。判定为陌生客户端，于是不走 REALITY 路径，而是把这条连接当作对借用站点的访问来处理。",
+        fields:[["解密 session_id","失败 "+badm,"local"],["判定","陌生客户端 → 转发路径","local"]],
+        observer:"本地计算，无报文。",
+        keys:[] },
+      { from:"S", to:"T", kind:"proxy", label:"TCP 转发 →", title:"把连接整条转发给借用站点",
+        desc:"服务端把这条 TCP 连接<b>原封不动转发</b>到真正的借用站点，自己只当透明管道，不解密、不插手握手。",
+        fields:[["action","向 www.example-cdn.com 建立连接","proxy"],["握手","由借用站点与探测者直接完成","proxy"]],
+        observer:"服务端此刻就是个 TCP 中继。",
+        keys:[] },
+      { from:"T", to:"C", kind:"plain", label:"借用站点的真实响应", title:"探测者拿到真站点与真证书",
+        desc:"探测者完成握手，拿到的是<b>借用站点自己的真实证书与网页</b>。从它的角度，这台主机看起来就是借用站点的一个节点，没有任何可疑之处。",
+        fields:[["certificate","借用站点的真实 CA 证书","plain"],["response","借用站点的真实页面","plain"],["探测结论","看起来是正常站点","plain"]],
+        observer:"探测者得到真证书、真网页，无法据此判定这是一台伪装主机。",
+        keys:[] }
+    ]
+  };
+
+  const svg = document.getElementById("seq");
+  const NS = "http://www.w3.org/2000/svg";
+  const KIND_CLASS = { plain:"plain", hs:"hs", app:"app", proxy:"proxy", local:"local" };
+  const KIND_LABEL = { plain:"明文", hs:"握手密钥加密", app:"应用密钥加密", proxy:"透明转发", local:"本地计算" };
+
+  let flow = "tls", scenario = "legit", observer = false, idx = 0, timer = null;
+
+  function steps() {
+    if (flow === "tls") return TLS.steps;
+    return scenario === "legit" ? REALITY.legit : REALITY.probe;
+  }
+  function lanes() { return flow === "tls" ? TLS.lanes : REALITY.lanes; }
+
+  function el(name, attrs, text) {
+    const e = document.createElementNS(NS, name);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function render() {
+    const L = lanes(), S = steps();
+    const padX = 24, topH = 54, rowH = 46, startY = topH + 20;
+    const vw = L.length === 2 ? 560 : 720;
+    const laneX = {};
+    const usableW = vw - padX * 2;
+    L.forEach((ln, i) => { laneX[ln.id] = padX + usableW * (L.length === 1 ? .5 : i / (L.length - 1)); });
+    const vh = startY + S.length * rowH + 16;
+    svg.setAttribute("viewBox", `0 0 ${vw} ${vh}`);
+    svg.textContent = "";
+
+    // 生命线
+    L.forEach(ln => {
+      svg.appendChild(el("line", { class:"lifeline", x1:laneX[ln.id], y1:topH, x2:laneX[ln.id], y2:vh-8 }));
+    });
+    // 泳道头
+    L.forEach(ln => {
+      const w = 120, x = Math.min(Math.max(laneX[ln.id]-w/2, 2), vw-w-2);
+      svg.appendChild(el("rect", { class:"lane-head", x, y:8, width:w, height:38, rx:8 }));
+      svg.appendChild(el("text", { class:"lane-title", x:laneX[ln.id], y:26, "text-anchor":"middle" }, ln.title));
+      svg.appendChild(el("text", { class:"lane-sub", x:laneX[ln.id], y:40, "text-anchor":"middle" }, ln.sub));
+    });
+
+    S.forEach((st, i) => {
+      const y = startY + i * rowH + rowH/2;
+      const g = el("g", { class:"row", tabindex:"0", role:"button", "data-i":i, "aria-label":`第 ${i+1} 步 ${st.title}` });
+      g.appendChild(el("rect", { class:"hit", x:2, y:y-rowH/2+3, width:vw-4, height:rowH-6, rx:6 }));
+      g.appendChild(el("text", { class:"num", x:10, y:y+4 }, String(i+1).padStart(2,"0")));
+      const kc = KIND_CLASS[st.kind];
+      const self = st.from === st.to;
+      if (self) {
+        const x = laneX[st.from];
+        g.appendChild(el("rect", { class:"local-box", x:x-70, y:y-13, width:140, height:26, rx:6 }));
+        g.appendChild(el("text", { class:`lbl f-${kc}`, x:x, y:y+4, "text-anchor":"middle" }, st.label));
+      } else {
+        const x1 = laneX[st.from], x2 = laneX[st.to];
+        const dir = x2 > x1 ? 1 : -1;
+        const dashed = st.kind === "proxy";
+        g.appendChild(el("line", { class:`arrow k-${kc}${dashed?" dashed":""}`, x1:x1+8*dir, y1:y, x2:x2-10*dir, y2:y, "marker-end":`url(#ar-${kc})` }));
+        const midx = (x1+x2)/2;
+        g.appendChild(el("text", { class:"lbl", x:midx, y:y-6, "text-anchor":"middle" }, st.label));
+      }
+      g.addEventListener("click", () => go(i));
+      g.addEventListener("keydown", e => { if (e.key==="Enter"||e.key===" ") { e.preventDefault(); go(i); } });
+      svg.appendChild(g);
+    });
+
+    // 箭头 marker
+    const defs = el("defs", {});
+    ["plain","hs","app","proxy"].forEach(k => {
+      const m = el("marker", { id:`ar-${k}`, viewBox:"0 0 10 10", refX:"8", refY:"5", markerWidth:"7", markerHeight:"7", orient:"auto-start-reverse" });
+      m.appendChild(el("path", { d:"M0,0 L10,5 L0,10 z", class:`f-${k}` }));
+      defs.appendChild(m);
+    });
+    svg.appendChild(defs);
+    paint();
+  }
+
+  function paint() {
+    const S = steps();
+    svg.querySelectorAll(".row").forEach(r => {
+      const i = +r.getAttribute("data-i");
+      r.classList.toggle("current", i === idx);
+      r.classList.toggle("future", i > idx);
+    });
+    const st = S[idx];
+    document.getElementById("d-step").textContent = `第 ${idx+1} / ${S.length} 步`;
+    const kind = document.getElementById("d-kind");
+    kind.className = "pill " + KIND_CLASS[st.kind];
+    kind.textContent = KIND_LABEL[st.kind];
+    const laneName = id => (lanes().find(l=>l.id===id)||{}).title || id;
+    document.getElementById("d-route").textContent = st.from===st.to ? laneName(st.from)+" 本地" : laneName(st.from)+" → "+laneName(st.to);
+    document.getElementById("d-title").textContent = st.title;
+    document.getElementById("d-desc").innerHTML = st.desc;
+
+    const hide = observer && (st.kind === "hs" || st.kind === "app");
+    document.getElementById("d-fields-mode").textContent = hide ? "旁观者：密文不可读" : "";
+    const fw = document.getElementById("d-fields");
+    fw.innerHTML = "";
+    st.fields.forEach(([k,v,enc]) => {
+      const row = document.createElement("div"); row.className = "field";
+      const kd = document.createElement("div"); kd.className = "k"; kd.textContent = k;
+      const vd = document.createElement("div"); vd.className = "v";
+      if (hide && (enc === "hs" || enc === "app")) {
+        vd.classList.add("masked"); if (enc==="app") vd.classList.add("app");
+        vd.textContent = "■■■■■■ 加密不可读 ■■■■■■";
+      } else {
+        vd.innerHTML = v;
+      }
+      row.appendChild(kd); row.appendChild(vd); fw.appendChild(row);
+    });
+
+    document.getElementById("d-observer").textContent = st.observer;
+    const kc = document.getElementById("d-keys");
+    kc.innerHTML = "";
+    if (!st.keys.length) {
+      const c = document.createElement("span"); c.className = "chip none"; c.textContent = "尚无——仍在明文阶段"; kc.appendChild(c);
+    } else {
+      st.keys.forEach(k => { const c = document.createElement("span"); c.className = "chip" + (k.includes("✓")?" new":""); c.textContent = k; kc.appendChild(c); });
+    }
+    document.getElementById("counter").textContent = `${idx+1} / ${S.length}`;
+  }
+
+  function go(i) { const S = steps(); idx = Math.max(0, Math.min(S.length-1, i)); stop(); paint(); }
+  function next() { const S = steps(); if (idx < S.length-1) { idx++; paint(); } else stop(); }
+  function prev() { if (idx > 0) { idx--; paint(); } }
+  function stop() { if (timer) { clearInterval(timer); timer = null; document.getElementById("play").textContent = "▶ 自动播放"; } }
+  function play() {
+    if (timer) { stop(); return; }
+    const S = steps();
+    if (idx >= S.length-1) idx = 0;
+    document.getElementById("play").textContent = "❙❙ 暂停";
+    paint();
+    timer = setInterval(() => { const S2 = steps(); if (idx < S2.length-1) { idx++; paint(); } else stop(); }, 2000);
+  }
+
+  function setFlow(f) {
+    flow = f; idx = 0; stop();
+    document.getElementById("tab-tls").setAttribute("aria-selected", f==="tls");
+    document.getElementById("tab-reality").setAttribute("aria-selected", f==="reality");
+    document.getElementById("scenario").hidden = f !== "reality";
+    render();
+  }
+  function setScenario(sc) {
+    scenario = sc; idx = 0; stop();
+    document.querySelectorAll("#scenario button").forEach(b => b.setAttribute("aria-pressed", b.dataset.sc===sc));
+    render();
+  }
+
+  document.getElementById("tab-tls").addEventListener("click", () => setFlow("tls"));
+  document.getElementById("tab-reality").addEventListener("click", () => setFlow("reality"));
+  document.querySelectorAll("#scenario button").forEach(b => b.addEventListener("click", () => setScenario(b.dataset.sc)));
+  document.getElementById("observer").addEventListener("change", e => { observer = e.target.checked; paint(); });
+  document.getElementById("next").addEventListener("click", () => { stop(); next(); });
+  document.getElementById("prev").addEventListener("click", () => { stop(); prev(); });
+  document.getElementById("play").addEventListener("click", play);
+  document.addEventListener("keydown", e => {
+    if (e.target.tagName === "INPUT") return;
+    if (e.key === "ArrowRight") { stop(); next(); }
+    else if (e.key === "ArrowLeft") { stop(); prev(); }
+  });
+
+  render();
+})();
+</script>
